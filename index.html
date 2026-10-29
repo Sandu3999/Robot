@@ -1,0 +1,298 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>AR Robot Battle</title>
+
+    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+    <script src="https://raw.githack.com/AR-js-org/AR.js/3.4.7/aframe/build/aframe-ar.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/aframe-extras@7.5.4/dist/aframe-extras.min.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+
+        #hud {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 999;
+            width: 230px;
+            padding: 12px;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+        }
+
+        .hp-title {
+            margin: 4px 0;
+            font-size: 15px;
+            font-weight: bold;
+        }
+
+        progress {
+            width: 100%;
+            height: 20px;
+            margin-bottom: 8px;
+        }
+
+        #message {
+            margin-top: 8px;
+            font-size: 14px;
+            color: #ffff66;
+            font-weight: bold;
+        }
+
+        #restartButton {
+            display: none;
+            margin-top: 10px;
+            padding: 9px 14px;
+            border: none;
+            border-radius: 7px;
+            background: #16866b;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="hud">
+
+        <div class="hp-title">
+            ROBOT HP: <span id="robotHpText">50</span> / 50
+        </div>
+
+        <progress id="robotHpBar" max="50" value="50"></progress>
+
+        <div class="hp-title">
+            PLAYER HP: <span id="playerHpText">100</span> / 100
+        </div>
+
+        <progress id="playerHpBar" max="100" value="100"></progress>
+
+        <div id="message">Click the robot to attack!</div>
+
+        <button id="restartButton">Restart Game</button>
+
+    </div>
+
+    <a-scene
+        embedded
+        arjs="sourceType: webcam"
+        cursor="rayOrigin: mouse"
+        raycaster="objects: .clickable">
+
+        <a-marker preset="hiro" smooth="true">
+
+            <a-entity id="model" position="0 0 0.5">
+
+                <a-gltf-model
+                    id="robot"
+                    class="clickable"
+                    src="robot.glb"
+                    position="0 0 0"
+                    scale="0.3 0.3 0.3"
+                    rotation="-90 0 0"
+                    animation-mixer="clip: RobotArmature|Robot_Idle">
+
+                </a-gltf-model>
+
+            </a-entity>
+
+        </a-marker>
+
+        <a-entity camera></a-entity>
+
+    </a-scene>
+
+    <script>
+        const robot = document.getElementById("robot");
+
+        const robotHpText = document.getElementById("robotHpText");
+        const robotHpBar = document.getElementById("robotHpBar");
+
+        const playerHpText = document.getElementById("playerHpText");
+        const playerHpBar = document.getElementById("playerHpBar");
+
+        const message = document.getElementById("message");
+        const restartButton = document.getElementById("restartButton");
+
+        let robotHP = 50;
+        let playerHP = 100;
+
+        let gameOver = false;
+        let attacking = false;
+
+        const hitSound = new Audio("hit.mp3");
+        const missSound = new Audio("miss.mp3");
+        const deathSound = new Audio("death.mp3");
+
+        function playSound(sound) {
+            sound.currentTime = 0;
+
+            sound.play().catch(() => {
+                console.log("Sound could not be played.");
+            });
+        }
+
+        function updateHP() {
+            robotHpText.textContent = robotHP;
+            robotHpBar.value = robotHP;
+
+            playerHpText.textContent = playerHP;
+            playerHpBar.value = playerHP;
+        }
+
+        function playAnimation(clip, loop = "once") {
+            robot.removeAttribute("animation-mixer");
+
+            robot.setAttribute("animation-mixer", {
+                clip: clip,
+                loop: loop,
+                clampWhenFinished: true
+            });
+        }
+
+        function attack() {
+            if (gameOver || attacking || robotHP <= 0 || playerHP <= 0) {
+                return;
+            }
+
+            attacking = true;
+
+            // 30% chance that the player's attack misses
+            if (Math.random() < 0.3) {
+                message.textContent = "You missed!";
+
+                playSound(missSound);
+
+                setTimeout(() => {
+                    attacking = false;
+
+                    if (!gameOver) {
+                        playAnimation("RobotArmature|Robot_Idle", "repeat");
+                    }
+                }, 500);
+
+                return;
+            }
+
+            // Player attacks the robot
+            const damage = Math.floor(Math.random() * 10) + 1;
+
+            robotHP = Math.max(0, robotHP - damage);
+
+            updateHP();
+
+            message.textContent = "Robot received " + damage + " damage!";
+
+            if (robotHP <= 0) {
+                gameOver = true;
+
+                message.textContent = "Robot defeated! You win!";
+
+                playAnimation("RobotArmature|Robot_Death");
+
+                playSound(deathSound);
+
+                restartButton.style.display = "block";
+
+                return;
+            }
+
+            playAnimation("RobotArmature|Robot_Jump");
+
+            playSound(hitSound);
+
+            // Robot counterattacks after 1 second
+            setTimeout(() => {
+                if (gameOver || robotHP <= 0 || playerHP <= 0) {
+                    attacking = false;
+                    return;
+                }
+
+                robotCounterAttack();
+
+            }, 1000);
+
+            // Allow another attack after the counterattack
+            setTimeout(() => {
+                attacking = false;
+
+                if (!gameOver && robotHP > 0) {
+                    playAnimation("RobotArmature|Robot_Idle", "repeat");
+                }
+            }, 1800);
+        }
+
+        function robotCounterAttack() {
+            if (gameOver || robotHP <= 0 || playerHP <= 0) {
+                return;
+            }
+
+            // 70% chance that the robot counterattacks
+            if (Math.random() < 0.7) {
+                const damage = Math.floor(Math.random() * 10) + 1;
+
+                playerHP = Math.max(0, playerHP - damage);
+
+                updateHP();
+
+                message.textContent = "Robot counterattacks! Player -" + damage + " HP!";
+
+                // Play the robot's attack animation
+                playAnimation("RobotArmature|Robot_Wave");
+
+                if (playerHP <= 0) {
+                    gameOver = true;
+
+                    message.textContent = "Game Over! The robot wins!";
+
+                    restartButton.style.display = "block";
+                }
+
+            } else {
+                message.textContent = "The robot's counterattack missed!";
+            }
+        }
+
+        function restartGame() {
+            robotHP = 50;
+            playerHP = 100;
+
+            gameOver = false;
+            attacking = false;
+
+            updateHP();
+
+            message.textContent = "Click the robot to attack!";
+
+            restartButton.style.display = "none";
+
+            playAnimation("RobotArmature|Robot_Idle", "repeat");
+        }
+
+        robot.addEventListener("click", attack);
+
+        restartButton.addEventListener("click", restartGame);
+
+        robot.addEventListener("model-loaded", () => {
+            playAnimation("RobotArmature|Robot_Idle", "repeat");
+        });
+
+        updateHP();
+    </script>
+
+</body>
+
+</html>
